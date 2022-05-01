@@ -9,28 +9,28 @@ const getActiveKeys = function (queueName) {
 
 const getCompletedKeys = function (queueName) {
 	return new Promise(resolve => {
-		queueName = queueName ? queueName : '*';
+		queueName = queueName ? queueName : '*'
 		redis.keys(`bull:${queueName}:completed`, (err, keys) => resolve(keys))
 	})
 }
 
 const getFailedKeys = function (queueName) {
 	return new Promise((resolve) => {
-		queueName = queueName ? queueName : '*';
+		queueName = queueName ? queueName : '*'
 		redis.keys(`bull:${queueName}:failed`, (err, keys) => resolve(keys))
 	})
 }
 
 const getWaitingKeys = function (queueName) {
 	return new Promise((resolve) => {
-		queueName = queueName ? queueName : '*';
+		queueName = queueName ? queueName : '*'
 		redis.keys(`bull:${queueName}:wait`, (err, keys) => resolve(keys))
 	})
 }
 
 const getDelayedKeys = function (queueName) {
 	return new Promise((resolve) => {
-		queueName = queueName ? queueName : '*';
+		queueName = queueName ? queueName : '*'
 		redis.keys(`bull:${queueName}:delayed`, (err, keys) => resolve(keys))
 	})
 }
@@ -76,8 +76,9 @@ const getStatus = function (status, queueName) {
 			.then(keys => {
 				const multi = []
 				const statusKeys = []
-				
-				for (var i = 0, ii = keys.length; i < ii; i++) {
+				if (!keys.length) return resolve({ count: 0, keys: [] })
+
+				for (let i = 0; i < keys.length; i++) {
 					const arr = keys[i].split(':')
 					const queueName = arr.slice(1, arr.length - 1)
 					const queue = queueName.join(':')
@@ -101,14 +102,12 @@ const getStatus = function (status, queueName) {
 					const statusKeyKeys = Object.keys(statusKeys) // Get the keys from the object we created earlier...
 					let count = 0
 					for (let k = 0; k < data.length; k++) {
+						if (!Array.isArray(data[k])) continue
 						statusKeys[statusKeyKeys[k]] = data[k]
 						count += data[k].length
 					}
 
-					return resolve({
-						keys: statusKeys,
-						count: count
-					})
+					return resolve({ keys: statusKeys, count })
 				})
 			})
 	})
@@ -169,7 +168,7 @@ const getJobsInList = function (list) {
 		}
 
 		//Old list type
-		getFullKeyNamesFromIds(list).then(keys => resolve(keys))
+		return getFullKeyNamesFromIds(list).then(keys => resolve(keys))
 	})
 }
 
@@ -215,7 +214,7 @@ const formatKeys = keys => {
 			.then(([failedJobs, completedJobs, activeJobs, pendingJobs, delayedJobs]) => {
 				const keyList = []
 				for (let i = 0; i < keys.length; i++) {
-					const arr = keys[i].split('')
+					const arr = keys[i].split(':')
 					const queueName = arr.slice(1, arr.length - 1)
 					const queue = queueName.join(':')
 					const explodedKeys = {}
@@ -248,9 +247,9 @@ const formatKeys = keys => {
 						status
 					})
 
-					keyList = _.sortBy(keyList, key => parseInt(key.id))
-					return resolve(keyList)
 				}
+				const sorted = _.sortBy(keyList, key => parseInt(key.id))
+				return resolve(sorted)
 			})
 	})
 }
@@ -457,31 +456,34 @@ const getDelayTimeForKeys = function (keys) {
 
 const getQueues = () => {
 	return new Promise((resolve, reject) => {
-		redis.keys('bull:*:id').then(queues => {
-			return Promise.all(queues.map(async (queue) => {
-				let name = queue.substring(0, queue.length - 3);
-				let activeJobs = await redis.lrange(name + ":active", 0, -1);
-				let active = activeJobs.filter(job => {
-					return redis.get(`${name}:${job}:lock`).then(lock => lock != null)
+		redis.keysAsync('bull:*:id').then(queues => {
+			return Promise.all(queues.map(async queue => {
+				const name = queue.substring(0, queue.length - 3)
+				const activeJobs = await redis.lrangeAsync(`${name}:active`, 0, -1)
+				const active = activeJobs.filter(job => {
+					return redis.getAsync(`${name}:${job}:lock`).then(lock => lock != null)
 				})
-				let stalled = activeJobs.filter(job => {
-					return redis.get(`${name}:${job}:lock`).then(lock => lock == null)
+				const stalled = activeJobs.filter(job => {
+					return redis.getAsync(`${name}:${job}:lock`).then(lock => lock == null)
 				})
 
-				let pending = await redis.llen(`${name}:wait`)
-				let delayed = await redis.zcard(`${name}:delayed`)
-				let completed = await redis.zcount(`${name}:completed`, '-inf', '+inf')
-				let failed = await redis.zcount(`${name}:failed`, '-inf', '+inf')
+				const pending = redis.llenAsync(`${name}:wait`)
+				const delayed = redis.zcardAsync(`${name}:delayed`)
+				const completed = redis.zcountAsync(`${name}:completed`, '-inf', '+inf')
+				const failed = redis.zcountAsync(`${name}:failed`, '-inf', '+inf')
 
-				return {
-					name: name.substring(5),
-					active: active.length,
-					stalled: stalled.length,
-					pending,
-					delayed,
-					completed,
-					failed,
-				}
+				return Promise.all([active, stalled, pending, delayed, completed, failed])
+					.then(([active, stalled, pending, delayed, completed, failed]) => {
+						return {
+							name: name.substring(5),
+							active: active.length,
+							stalled: stalled.length,
+							pending,
+							delayed,
+							completed,
+							failed,
+						}
+					})
 			}))
 		}).then(resolve)
 	})

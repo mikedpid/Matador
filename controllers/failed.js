@@ -1,7 +1,7 @@
 const redisModel = require('../models/redis')
 
 module.exports = function (app) {
-	var getFailedData = function () {
+	const getFailedData = function () {
 		return redisModel.getStatus('failed')
 			.then(failed => redisModel.getJobsInList(failed))
 			.then(keys => redisModel.formatKeys(keys))
@@ -17,12 +17,12 @@ module.exports = function (app) {
 	}
 
 	app.get('/failed', function (req, res) {
-		return getFailedData(req, res)
+		return getFailedData()
 			.then(model => res.render('jobList', model))
 	})
 
 	app.get('/api/failed', function (req, res) {
-		return getFailedData(req, res)
+		return getFailedData()
 			.then(model => res.json(model))
 	})
 }
