@@ -1,41 +1,40 @@
-'use strict';
-var redisModel = require('../models/redis'),
-    _ = require('lodash'),
-    q = require('q'),
-    updateInfo = require('../lib/updateInfo.js');
+const updateInfo = require('../lib/updateInfo.js')
+const redisModel = require('../models/redis')
+const _ = require('lodash')
 
 module.exports = function (app) {
-    var getOverviewData = function(req, res){
-        var dfd = q.defer();
-        redisModel.getAllKeys().done(function(keys){
-            redisModel.formatKeys(keys).done(function(keyList){
-                redisModel.getStatusCounts().done(function(countObject){
-                    updateInfo.getMemoryUsage().done(function(memoryUsage){
-                        if(countObject.stuck == 0) keyList = [];
-                        else keyList = _.filter(keyList, function(key){ return key.status === "stuck"; });
-                        var usage = [];
-                        for(var time in memoryUsage.usage){
-                            usage.push({time: time, memory: memoryUsage.usage[time]});
-                        }
-                        memoryUsage.usage = usage;
-                        var model = { keys: keyList, counts: countObject, overview: true, memory: memoryUsage };
-                        dfd.resolve(model);
-                    });
-                });
-            });
-        });
-        return dfd.promise;
-    }
+	const getOverviewData = function () {
+		return redisModel.getAllKeys()
+			.then(keys => {
+				return Promise.all([
+					redisModel.formatKeys(keys),
+					redisModel.getStatusCounts(),
+					updateInfo.getMemoryUsage()
+				])
+			})
+			.then(([keyList, countObject, memoryUsage]) => {
+				const usage = []
+				keyList = _.filter(keyList, key => key.status === 'stuck')
+				for (let time in memoryUsage.usage) {
+					usage.push({ time, memory: memoryUsage[time] })
+				}
+				memoryUsage.usage = usage
+				return {
+					keys: keyList,
+					counts: countObject,
+					overview: true,
+					memory: memoryUsage
+				}
+			})
+	}
 
-    app.get('/', function (req, res) {
-        getOverviewData(req, res).done(function(model){
-            res.render('index', model);
-        });
-    });
+	app.get('/', function (req, res) {
+		return getOverviewData()
+			.then(model => res.render('index', model))
+	})
 
-    app.get('/api/', function (req, res) {
-        getOverviewData(req, res).done(function(model){
-            res.json(model);
-        });
-    });
-};
+	app.get('/api/', function (req, res) {
+		return getOverviewData()
+			.then(model => res.json(model))
+	})
+}

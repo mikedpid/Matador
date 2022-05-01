@@ -1,52 +1,40 @@
-'use strict';
-
-
-var redisModel = require('../models/redis'),
-		moment = require('moment'),
-    q = require('q');
-
+const redisModel = require('../models/redis')
+const moment = require('moment')
+const _ = require('lodash')
 
 module.exports = function (app) {
-    var getDelayedModel = function(req, res){
-        var dfd = q.defer();
-        redisModel.getStatus("delayed").done(function(delayed){
-            redisModel.getJobsInList(delayed).done(function(keys){
-                redisModel.formatKeys(keys).done(function(formattedKeys){
-                    redisModel.getDelayTimeForKeys(formattedKeys).done(function(keyList){
-                        redisModel.getStatusCounts().done(function(countObject){
-													keyList = keyList.map(function (key) {
-														var numSecondsUntil = moment(new Date(key.delayUntil)).diff(moment(), 'seconds');
-														var formattedDelayUntil = 'in ' + numSecondsUntil + ' seconds';
-														if (numSecondsUntil === 1) {
-															formattedDelayUntil = 'in ' + numSecondsUntil + ' second';
-														}
-														else if (numSecondsUntil > 60) {
-															formattedDelayUntil = moment(new Date(key.delayUntil)).fromNow();
-														}
+	const getDelayedModel = function () {
+		return redisModel.getStatus('delayed')
+			.then(delayed => redisModel.getJobsInList(delayed))
+			.then(keys => redisModel.formatKeys(keys))
+			.then(formattedKeys => redisModel.getDelayTimeForKeys(formattedKeys))
+			.then(keyList => Promise.all([keyList, redisModel.getStatusCounts()]))
+			.then(([keyList, countObject]) => {
+				keyList = _.map(keyList, key => {
+					const secondsUntil = moment(new Date(key.delayUntil)).diff(moment(), 'seconds')
+					const formattedDelayUntil = secondsUntil > 60
+						? moment(new Date(key.delayUntil)).fromNow()
+						: `in ${secondsUntil} seconds`
+					key.delayUntil = formattedDelayUntil
+					return key
+				})
 
-														key.delayUntil = formattedDelayUntil;
-														return key;
+				return {
+					keys: keyList,
+					counts: countObject,
+					delayed: true,
+					type: 'Delayed'
+				}
+			})
+	}
 
-													});
-                            var model = { keys: keyList, counts: countObject, delayed: true, type: "Delayed" };
-                            dfd.resolve(model);
-                        });
-                    });
-                });
-            });
-        });
-        return dfd.promise;
-    };
+	app.get('/delayed', function (req, res) {
+		return getDelayedModel()
+			.then(model => res.render('jobList', model))
+	})
 
-    app.get('/delayed', function (req, res) {
-        getDelayedModel(req, res).done(function(model){
-            res.render('jobList', model);
-        });
-    });
-
-    app.get('/api/delayed', function (req, res) {
-        getDelayedModel(req, res).done(function(model){
-            res.json(model);
-        });
-    });
-};
+	app.get('/api/delayed', function (req, res) {
+		return getDelayedModel()
+			.then(model => res.json(model))
+	})
+}

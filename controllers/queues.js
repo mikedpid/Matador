@@ -1,31 +1,25 @@
-'use strict';
-
-
-var redisModel = require('../models/redis'),
-    q = require('q');
-
+const redisModel = require('../models/redis')
 
 module.exports = function (app) {
-    var getQueuesModel = function(req, res){
-        var dfd = q.defer();
-        redisModel.getQueues().done(function(queues){
-            redisModel.getStatusCounts().done(function(countObject){
-                var model = { keys: queues, counts: countObject, queues: true, type: "Queues" };
-                dfd.resolve(model);
-            });
-        });
-        return dfd.promise;
-    };
+	const getQueuesModel = function() {
+		return Promise.all([redisModel.getQueues(),redisModel.getStatusCounts()])
+			.then(([queues, countObject]) => {
+				return {
+					keys: queues,
+					counts: countObject,
+					queues: true,
+					type: 'Queues'
+				}
+			})
+	}
 
-    app.get('/queues', function (req, res) {
-        getQueuesModel(req, res).done(function(model){
-            res.render('queueList', model);
-        });
-    });
+	app.get('/queues', function (req, res) {
+		return getQueuesModel()
+			.then(model => res.render('queueList', model))
+	})
 
-    app.get('/api/queues', function (req, res) {
-        getQueuesModel(req, res).done(function(model){
-            res.json(model);
-        });
-    });
-};
+	app.get('/api/queues', function (req, res) {
+		return getQueuesModel()
+			.then(model => res.json(model))
+	})
+}

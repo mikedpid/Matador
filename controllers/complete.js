@@ -1,35 +1,28 @@
-'use strict';
-
-
-var redisModel = require('../models/redis'),
-    q = require('q');
-
+const redisModel = require('../models/redis')
 
 module.exports = function (app) {
-    var requestComplete = function(req, res){
-        var dfd = q.defer();
-        redisModel.getStatus("complete").done(function(completed){
-            redisModel.getJobsInList(completed).done(function(keys){
-                redisModel.formatKeys(keys).done(function(keyList){
-                    redisModel.getStatusCounts().done(function(countObject){
-                        var model = { keys: keyList, counts: countObject, complete: true, type: "Complete" };
-                        dfd.resolve(model);
-                    });
-                });
-            });
-        });
-        return dfd.promise;
-    };
+	const requestComplete = function () {
+		return redisModel.getStatus('complete')
+			.then(completed => redisModel.getJobsInList(completed))
+			.then(keys => redisModel.formatKeys(keys))
+			.then(keyList => Promise.all([keyList, redisModel.getStatusCounts()]))
+			.then(([keyList, countObject]) => {
+				return {
+					keys: keyList,
+					counts: countObject,
+					complete: true,
+					type: 'Complete'
+				}
+			})
+	}
 
-    app.get('/complete', function (req, res) {
-        requestComplete(req, res).done(function(model){
-            res.render('jobList', model);
-        });
-    });
+	app.get('/complete', function (req, res) {
+		return requestComplete(req, res)
+			.then(model => res.render('jobList', model))
+	})
 
-    app.get('/api/complete', function (req, res) {
-        requestComplete(req, res).done(function(model){
-            res.json(model);
-        });
-    });
-};
+	app.get('/api/complete', function (req, res) {
+		return requestComplete(req, res)
+			.then(model => res.json(model))
+	})
+}
